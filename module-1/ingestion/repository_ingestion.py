@@ -1,61 +1,69 @@
-from .content_extractor import ContentExtractor
 from pathlib import Path
-from typing import List
-
-from .file_metadata import FileMetadata
+from ingestion.file_metadata import FileMetadata
 
 
 class RepositoryIngestion:
-    """Handles repository ingestion for Module 1."""
-
     SUPPORTED_EXTENSIONS = {
-        ".py", ".js", ".ts", ".java", ".cpp", ".c", ".h", ".cs",
-        ".go", ".rs", ".php", ".rb", ".swift", ".kt", ".json",
-        ".xml", ".yaml", ".yml", ".sql", ".md", ".txt", ".env",
-        ".conf", ".ini", ".properties",
+        ".py", ".js", ".ts", ".jsx", ".tsx",
+        ".json", ".xml", ".yaml", ".yml",
+        ".sql", ".md", ".txt", ".env",
+        ".ini", ".cfg", ".conf",
     }
 
-    def __init__(self, repository_path: str):
-        self.repository_path = Path(repository_path)
+    def __init__(self, repository_path: str | Path | None = None):
+        self.repository_path = (
+            Path(repository_path)
+            if repository_path is not None
+            else None
+        )
 
-        if not self.repository_path.exists():
-            raise FileNotFoundError(f"Repository not found: {self.repository_path}")
+    def ingest(self) -> list[Path]:
+        if self.repository_path is None:
+            raise ValueError("repository_path is required for ingest()")
 
-        if not self.repository_path.is_dir():
-            raise ValueError(f"Repository path is not a directory: {self.repository_path}")
+        return [FileMetadata.from_path(path, self.repository_path) for path in self.discover_files(self.repository_path)]
 
-    def ingest(self) -> List[FileMetadata]:
-        """Scan the repository and collect metadata for each file."""
-        files: List[FileMetadata] = []
-        extractor = ContentExtractor()
+    def discover_files(self, repository_path: Path) -> list[Path]:
+        if not repository_path.exists():
+            raise FileNotFoundError(
+                f"Repository not found: {repository_path}"
+            )
 
-        for file_path in self.repository_path.rglob("*"):
-            if not file_path.is_file():
+        if not repository_path.is_dir():
+            raise NotADirectoryError(
+                f"Repository path is not a directory: {repository_path}"
+            )
+
+        return [
+            path
+            for path in repository_path.rglob("*")
+            if path.is_file()
+        ]
+
+    def classify_files(self, repository_path: Path) -> list[dict]:
+        results = []
+
+        for path in self.discover_files(repository_path):
+            if path.suffix.lower() not in self.SUPPORTED_EXTENSIONS:
+                results.append({
+                    "path": path,
+                    "status": "Unsupported",
+                })
                 continue
 
             try:
-                metadata = FileMetadata.from_path(file_path, self.repository_path)
+                path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as error:
+                results.append({
+                    "path": path,
+                    "status": "Failed to Read",
+                    "error": str(error),
+                })
+                continue
 
-                if self._is_supported(file_path):
-                    metadata.processing_status = "Pending"
-                    metadata.extracted_content = extractor.extract(file_path)
-                else:
-                    metadata.processing_status = "Unsupported"
+            results.append({
+                "path": path,
+                "status": "Processed",
+            })
 
-                files.append(metadata)
-
-            except (OSError, ValueError):
-                metadata = FileMetadata(
-                    file_path=str(file_path),
-                    file_name=file_path.name,
-                    file_type=file_path.suffix.lower(),
-                    file_size=0,
-                    processing_status="Failed to Read",
-                )
-                files.append(metadata)
-
-        return files
-
-    def _is_supported(self, file_path: Path) -> bool:
-        """Determine whether the file type is supported."""
-        return file_path.suffix.lower() in self.SUPPORTED_EXTENSIONS
+        return results

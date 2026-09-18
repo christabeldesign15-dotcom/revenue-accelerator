@@ -2,15 +2,24 @@ from models.finding import Finding
 
 
 class Redactor:
-    def redact(self, content: str, findings: list[Finding]) -> str:
-        redacted = content
+    REPLACEMENTS = {
+        "api_key": "[REDACTED_SECRET]",
+        "password": "[REDACTED_SECRET]",
+        "secret": "[REDACTED_SECRET]",
+        "token": "[REDACTED_TOKEN]",
+    }
 
-        # Replace from the end so earlier positions stay valid
-        for finding in sorted(findings, key=lambda item: item.start, reverse=True):
-            redacted = (
-                redacted[:finding.start]
-                + "[REDACTED]"
-                + redacted[finding.end:]
-            )
+    def redact(self, content: str, finding: Finding, decision: str) -> str:
+        if decision != "REDACT":
+            return content
 
-        return redacted
+        replacement = self.REPLACEMENTS.get(
+            finding.type,
+            "[REDACTED_SECRET]",
+        )
+
+        return (
+            content[:finding.start]
+            + replacement
+            + content[finding.end:]
+        )
